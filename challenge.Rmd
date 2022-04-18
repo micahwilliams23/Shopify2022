@@ -1,0 +1,154 @@
+---
+title: "Shopify Data Science Intern Challenge"
+author: "Micah Williams"
+date: "4/18/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readr)
+```
+
+### Exploratory Analysis
+
+```{r import}
+# import data from csv
+df <- read_csv('challenge_data.csv',
+               col_types = 'dddddfc') %>%
+  mutate('created_at' = parse_datetime(created_at, format = '%Y-%m-%d %H:%M:%S'))
+  
+# view section of data and summary
+df %>% glimpse()
+df %>% summary()
+
+# show no. of unique values
+# df %>% summarize_at(vars(order_id:user_id), ~length(unique(.)))
+```
+
+There are 5,000 rows in the data set, each covering a unique order. There are 100 unique values for `shop_id` and 301 unique values for `user_id`. The median order amount was \$284, though the order amounts ranged from \$90 to \$704,000. Similarly, most orders were for one or two items, but there were some orders that were much larger. The orders are split roughly evenly among cash, credit card, and debit transactions, and cover a period from March 1, 2017 until March 30, 2017. There are no missing values in the data set.
+
+Based on the question, we know that each shop sells only one model of shoe.
+
+### Question 1
+
+As we can see from the above summary table, the average order value (AOV) is calculated as \$3,145. However, this does not account for the number of items purchased in each order. A better way to evaluate this data would be to calculate the average item cost. This could be done in the following way:
+
+```{r avg_cost}
+# calculate average item cost
+df <- df %>%
+  mutate(item_cost = order_amount / total_items)
+
+# summarize average item cost
+summary(df$item_cost)
+
+# display unique item cost values
+# sort(unique(df$item_cost))
+```
+
+This analysis shows that the average price of a pair of sneakers during this period was \$387.70. However, the average is skewed by one very high priced sneaker (one of the shops sells a sneaker priced at \$25,725, while all of the other prices are below \$400). The median is a more accurate metric to understand the prices of sneakers. The median item price was \$153. Below is a bar plot showing the number of pairs of sneakers purchased at each price point.
+
+```{r plot, fig.width = 8, fig.height = 5, echo = F}
+
+# create groups
+df_grp <- df %>% 
+  mutate(item_cost_grp = cut(item_cost,
+                             breaks = c(90, 120, 150, 180, 200, 352, 25725),
+                             labels = c('$90-120',
+                                        '$120-150',
+                                        '$150-180',
+                                        '$180-200',
+                                        '$200-352',
+                                        '$25,725'),
+                             include.lowest = T))
+
+counts <- df_grp %>% 
+  group_by('grp' = item_cost_grp) %>% 
+  summarize('n' = n()) %>%
+  mutate(label = format(n, big.mark = ','))
+ 
+df_grp %>% 
+  # create plot
+  ggplot() +
+  
+  # add bars
+  geom_bar(aes(item_cost_grp, fill = item_cost_grp)) +
+  
+  # add labels
+  labs(y = 'Count', x = 'Item Cost',
+       title = 'Number of items purchased by cost, March 2017',
+       subtitle = 'Most purchased items were between $120 and $180, but a few items were purchased for $25,725.') +
+  
+  geom_text(aes(x = grp, y = n+100, label = label), data = counts) +
+  
+  # remove scale and change theme
+  scale_fill_discrete(guide = 'none') +
+  theme_minimal()
+
+rm(df_grp, counts)
+```
+
+Another useful metric I would report for this data set is the total revenue per shop.
+
+```{r total_revenue}
+
+# calculate revenue by shop
+shops <- df %>%
+  group_by(shop_id) %>%
+  summarize(revenue = sum(order_amount), items = sum(total_items), item_cost = mean(item_cost))
+
+# display top 5 by revenue
+shops %>%
+  arrange(desc(revenue)) %>% 
+  head(5)
+
+# median(shops$revenue)
+```
+
+The shop with the most revenue during March 2017 was Shop 42, which had total revenue of \$11,990,176. Shop 42 sold 34,063 pairs of sneakers at a price of \$352. The shop with the second highest amount of revenue was Shop 78, which sold 88 pairs of sneakers for \$25,725 each, totaling \$2,263,800. The median revenue was \$14,887.50.
+
+### Question 2
+
+Question 2: For this question you’ll need to use SQL. Follow this link to access the data set required for the challenge. Please use queries to answer the following questions. Paste your queries along with your final numerical answers below.
+
+a. How many orders were shipped by Speedy Express in total? 
+K
+There were **54** orders shipped by Speedy Express.
+
+```{sql, eval=F}
+SELECT COUNT(DISTINCT OrderID) FROM Orders WHERE ShipperID = 1
+```
+
+b. What is the last name of the employee with the most orders? 
+
+The last name of the employee with the most orders is **Peacock**.
+
+```{sql, eval=F}
+SELECT COUNT(DISTINCT OrderID) AS Orders, Orders.EmployeeID, LastName 
+FROM Orders 
+LEFT JOIN Employees ON Employees.EmployeeID = Orders.EmployeeID 
+GROUP BY Orders.EmployeeID 
+ORDER BY Orders DESC 
+LIMIT 1
+```
+
+c. What product was ordered the most by customers in Germany?
+
+The product ordered the most by customers in Germany was **Boston Crab Meat**, which was ordered a total of 160 times by customers in Germany.
+
+```{sql, eval=F}
+SELECT SUM(OrderDetails.Quantity) AS TotalQuantity, ProductName 
+FROM OrderDetails 
+LEFT JOIN Orders ON OrderDetails.OrderID = Orders.OrderID 
+LEFT JOIN Products ON Products.ProductID = OrderDetails.ProductID 
+LEFT JOIN Customers ON Customers.CustomerID = Orders.CustomerID 
+WHERE Customers.Country = 'Germany' 
+GROUP BY OrderDetails.ProductID 
+ORDER BY TotalQuantity DESC 
+LIMIT 1
+```
+
+
